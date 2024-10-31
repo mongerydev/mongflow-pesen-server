@@ -25,6 +25,7 @@ const {
   getOrderStock,
   delOrderStocks,
   getOrderStockQuantity,
+  approveOrderStock,
 } = require("../services/Orders");
 const { getOne: getCustomer, patchCustomer } = require("../services/Customers");
 
@@ -39,6 +40,7 @@ const {
   reduceStockById,
   delStockById,
   reduceStockByLogId,
+  reduceStockByProductionId,
 } = require("../services/Stocks");
 const { getLog, getLogIdByProduct } = require("../services/StockLogs");
 
@@ -490,16 +492,15 @@ const approveOrder = async (req, res) => {
 
     order = { ...getorders[0] };
 
-    console.log("order", order);
+    // console.log("order", order);
     if (!isproduction) {
       const { products } = req.body;
 
-
       for (const product of products) {
-        const { id, quantity } = product; 
-        console.log("id", product);
+        const { id, quantity } = product;
+        // console.log("id", product);
 
-        const { rows: approveOrderStock, rowCount: approveRowCount } = await approveOrderStock(
+        const { rowCount: approveRowCount } = await approveOrderStock(
           id,
           client
         );
@@ -508,12 +509,11 @@ const approveOrder = async (req, res) => {
           throw new Error("Hata!");
         }
 
-        const { rows: orderStocksQuantity, rowCount: orderStockRowCount } =
+        const { rows: orderStocksQuantity, rowCount: orderStockQuantityCount } =
           await getOrderStockQuantity(client, id);
-        console.log("orderStocks", orderStocksQuantity);
 
-        if (!orderStockRowCount) {
-          throw new Error("Stok Seçiniz!");
+        if (!orderStockQuantityCount) {
+          throw new Error("missingStock");
         }
 
         const totalSelectedStock = orderStocksQuantity[0].sum;
@@ -522,47 +522,79 @@ const approveOrder = async (req, res) => {
           const { rows: orderStocks, rowCount: orderStockRowCount } =
             await getOrderStock(client, id);
           if (!orderStockRowCount) {
-            throw new Error("Stok Seçiniz!");
+            throw new Error("missingStock");
           }
 
-          orderStocks.forEach(async (stock) => {
-            const { rows: reducedStocks, rowCount } = await reduceStockByLogId(
-              { logproduct_id: stock.logproduct_id, quantity },
-              client
-            );
+          console.log("getOrderStocks", orderStocks);
 
-            if (!rowCount) {
-              throw new Error("Eksik Stok!");
-            }
+          for (const stock of orderStocks) {
+            if (stock.logproduct_id) {
+              console.log("inside logproducts", stock);
 
-            stockIds.push(reducedStocks[0].id);
-            if (reducedStocks[0].quantity === 0) {
-              await delStockById(reducedStocks[0].id, client);
-            }
-            const log_id = reducedStocks[0].log_id;
+              const { rows: reducedStocks, rowCount: reduceStockRowCount } =
+                await reduceStockByLogId(
+                  {
+                    logproduct_id: parseInt(stock.logproduct_id),
+                    quantity: stock.quantity,
+                  },
+                  client
+                );
 
-            const customer_id = order.customer_id;
-            //burada stok borcu düşecek
-            const totalPrice = reducedStocks[0].price * quantity;
+              // console.log("reducedLogStocks res in log", reducedStocks[0]);
 
-            const { rows: customer } = await getCustomer(customer_id, client);
-            const productSalesBalance = customer[0].product_sales_balance;
+              if (reduceStockRowCount === 0) {
+                throw new Error("usedStockLog");
+              }
 
-            // payoff
-            let calculatedBalance = productSalesBalance + totalPrice;
+              if (reducedStocks[0].quantity === 0) {
+                await delStockById(reducedStocks[0].id, client);
+              }
 
-            const { rows: updatedCustomer, rowCount: updatedCustomerRowCount } =
-              await patchCustomer(
+              stockIds.push(reducedStocks[0].id);
+
+              const customer_id = order.customer_id;
+              //burada stok borcu düşecek
+              const totalPrice = reducedStocks[0].price * quantity;
+
+              const { rows: customer } = await getCustomer(customer_id, client);
+              const productSalesBalance = customer[0].product_sales_balance;
+
+              // payoff
+              let calculatedBalance = productSalesBalance + totalPrice;
+
+              const {
+                rows: updatedCustomer,
+                rowCount: updatedCustomerRowCount,
+              } = await patchCustomer(
                 customer_id,
                 { product_sales_balance: calculatedBalance },
                 client
               );
 
-            if (!updatedCustomerRowCount) {
-              throw new Error("Hata!");
-            }
-          });
+              if (!updatedCustomerRowCount) {
+                throw new Error("Hata!");
+              }
+            } else if (stock.orderproduction_id) {
+              console.log("inside orderproduction", stock);
+              const { rows: reducedStocks, rowCount: reduceStockRowCount } =
+                await reduceStockByProductionId(
+                  {
+                    production_id: parseInt(stock.orderproduction_id),
+                    quantity: stock.quantity,
+                  },
+                  client
+                );
 
+              console.log("reducedStocks in prod", reducedStocks[0]);
+
+              if (reduceStockRowCount) {
+                if (reducedStocks[0]?.quantity === 0) {
+                  await delStockById(reducedStocks[0].id, client);
+                }
+                stockIds.push(reducedStocks[0].id);
+              }
+            }
+          }
           const { rowCount: updateProductStatus } =
             await updateProductStatusByProduct(client, {
               orderproduct_id: id,
@@ -572,9 +604,8 @@ const approveOrder = async (req, res) => {
           if (!updateProductStatus) {
             throw new Error("Hata");
           }
-        }else{
+        } else {
           throw new Error("Hata");
-
         }
       }
 
@@ -653,9 +684,22 @@ const approveOrder = async (req, res) => {
   } catch (err) {
     console.log(err);
     await client.query("ROLLBACK");
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .send({ error: "An error occurred." });
+
+    if (err.constraint === "missingStock") {
+      return res.status(httpStatus.BAD_REQUEST).send("Hata! Eksik Stok.");
+    }
+    if (err.constraint === "usedStock") {
+      return res
+        .status(httpStatus.BAD_REQUEST)
+        .send("Hata! Seçilen stok kullanılmış.");
+    }
+    if (err.constraint === "usedStockLog") {
+      return res
+        .status(httpStatus.BAD_REQUEST)
+        .send("Hata! Seçilen stok kullanılmış.");
+    }
+
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).send("An error occurred.");
   } finally {
     client.release();
   }
@@ -868,7 +912,6 @@ const getOrderExpenseCost = async (req, res) => {
     await client.query("BEGIN");
 
     const { rows } = await getExpenseCostOrder(order_id, client);
-    console.log(rows);
     await client.query("COMMIT");
     res.status(httpStatus.CREATED).send(rows);
   } catch (e) {
@@ -885,12 +928,10 @@ const getOrderExpenseCost = async (req, res) => {
 const getOrderStocks = async (req, res) => {
   const client = await process.pool.connect();
   const orderproduct_id = parseInt(req.params.id);
-  console.log("get ordersStocks", orderproduct_id);
   try {
     await client.query("BEGIN");
 
     const { rows } = await getOrderStock(client, orderproduct_id);
-    console.log(rows);
     await client.query("COMMIT");
     res.status(httpStatus.CREATED).send(rows);
   } catch (e) {
@@ -951,10 +992,12 @@ const updateOrderStock = async (req, res) => {
     }
 
     for (const stock of orderStocks) {
-      const { rows, rowCount } = await insertOrderStock(stock, client);
-
-      if (!rowCount) {
-        throw new Error("Hata!");
+      if (stock.logproduct_id === 0) {
+      } else {
+        const { rows, rowCount } = await insertOrderStock(stock, client);
+        if (!rowCount) {
+          throw new Error("Hata!");
+        }
       }
     }
 

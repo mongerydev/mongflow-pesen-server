@@ -7,15 +7,18 @@ const {
   putLog,
   approveLog,
   removeLog,
-  getNonApprovedLogs
-
+  getNonApprovedLogs,
+  getUsageLogs,
+  createStockUsageLog
 } = require("../controllers/StockLogs");
 
 const express = require("express");
 const router = express.Router();
 
 router.route("/:product_type").get(authenticate, paramValidate("product_type"), getLogsByDate);
+router.route("/usage/:product_type").get(authenticate, paramValidate("product_type"), getUsageLogs);
 router.route("/").post(authenticate, createLog);
+router.route("/usage").post(authenticate, createStockUsageLog);
 router.route("/:id").put(authenticate, putLog);
 router.route("/approve/:id").patch(authenticate, approveLog);
 router.route("/:id").delete(authenticate, paramValidate("id"), removeLog);

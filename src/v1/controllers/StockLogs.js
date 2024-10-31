@@ -14,7 +14,9 @@ const {
   getLogProducts,
   deleteAllLogProducts,
   insertLogProduct,
-  getLogsNonApproved
+  getLogsNonApproved,
+  _getUsageLogs,
+  insertUsageLog,
 } = require("../services/StockLogs");
 const { findOne } = require("../services/Users");
 const { getAttributeDetails } = require("../services/LastProductStocks");
@@ -32,6 +34,8 @@ const {
   insertStock,
   getStockByLogId,
   delStock,
+  reduceStockById,
+  delStockById,
 } = require("../services/Stocks");
 
 const createLog = async (req, res) => {
@@ -232,12 +236,10 @@ const approveLog = async (req, res) => {
           interest_cost * logData.vat_rate * (1 - logData.vat_witholding_rate);
       }
 
-
       const stockData = {
         ...product,
         log_id: logData.id,
         logproduct_id: product.id,
-  
       };
       const { rows: stock, rowCount: stockRowCount } = await insertStock(
         stockData,
@@ -389,7 +391,6 @@ const removeLog = async (req, res) => {
           if (rowCount === 0) {
             throw new Error("Hata!");
           } else {
-            
             const currentStock = rows[0]?.quantity;
 
             if (currentStock === product.quantity) {
@@ -473,21 +474,80 @@ const removeLog = async (req, res) => {
 };
 
 const getNonApprovedLogs = async (req, res) => {
-   console.log("getNonApprovedLogs block rendered")
-    const client = await process.pool.connect();
-    try {
-      const { rows } = await getLogsNonApproved(client);
-      res.status(httpStatus.OK).send(rows);
-    } catch (e) {
-      console.error(e);
-      res
-        .status(httpStatus.INTERNAL_SERVER_ERROR)
-        .send({ error: "An error occurred." });
-    } finally {
-      client.release();
-    }
+  console.log("getNonApprovedLogs block rendered");
+  const client = await process.pool.connect();
+  try {
+    const { rows } = await getLogsNonApproved(client);
+    res.status(httpStatus.OK).send(rows);
+  } catch (e) {
+    console.error(e);
+    res
+      .status(httpStatus.INTERNAL_SERVER_ERROR)
+      .send({ error: "An error occurred." });
+  } finally {
+    client.release();
+  }
 };
 
+
+const getUsageLogs = async (req, res) => {
+  const client = await process.pool.connect();
+  const product_type = parseInt(req?.params?.product_type);
+
+  try {
+    const { rows } = await _getUsageLogs(product_type , client);
+    res.status(httpStatus.OK).send(rows);
+  } catch (e) {
+    console.error(e);
+    res
+      .status(httpStatus.INTERNAL_SERVER_ERROR)
+      .send({ error: "An error occurred." });
+  } finally {
+    client.release();
+  }
+};
+const createStockUsageLog = async (req, res) => {
+  const client = await process.pool.connect();
+  const params = req.body;
+  const { id, quantity } = params;
+  try {
+    const { rows: usageLogs, rowCount: usageRowCount } = await insertUsageLog(
+      params,
+      client
+    );
+    if (!usageRowCount) {
+      throw new Error("Hata!");
+    }
+
+    const { rows: reducedStock, rowCount: reducedRowCount } =
+      await reduceStockById({ id, quantity }, client);
+    if (!reducedRowCount) {
+      throw new Error("negativeStockReduce!");
+    }
+
+    if (reducedStock[0].quantity === 0) {
+      const { rowCount, rows } = await delStockById(id, client);
+      if (!rowCount) {
+        throw new Error("Hata!");
+      }
+    }
+
+    res.status(httpStatus.OK).send({ ...usageLogs[0] });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    if (err.constraint === "negativeStockReduce") {
+      return res
+        .status(httpStatus.BAD_REQUEST)
+        .send("Hata! Yetersiz Stok Kullanımı.");
+    }
+
+    res
+      .status(httpStatus.INTERNAL_SERVER_ERROR)
+      .send("An error occurred." );
+  } finally {
+    client.release();
+  }
+};
 
 module.exports = {
   getLogsByDate,
@@ -495,5 +555,7 @@ module.exports = {
   createLog,
   approveLog,
   removeLog,
-  getNonApprovedLogs
+  getNonApprovedLogs,
+  getUsageLogs,
+  createStockUsageLog,
 };

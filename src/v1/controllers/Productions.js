@@ -5,6 +5,7 @@ const {
   _createManual,
   _getAllManual,
   _getOneManual,
+  _delManual,
 } = require("../services/Productions");
 const {
   getOrderShiftsById,
@@ -33,9 +34,15 @@ const {
   getOrderStockQuantity,
   getOrderProduct,
   insertOrderStock,
+  getOrderStockByProduction,
+  delOrderStockByProductionId,
 } = require("../services/Orders");
 const { undoReduceStock } = require("../services/RecipeMaterialStocks");
-const { insertStock } = require("../services/Stocks");
+const {
+  insertStock,
+  getStockByProductionId,
+  delStockById,
+} = require("../services/Stocks");
 const get = async (req, res) => {
   const client = await process.pool.connect();
 
@@ -406,20 +413,33 @@ const createManual = async (req, res) => {
       const orderProductQuantity = orderProduct[0].quantity;
 
       if (totalQuantity > orderProductQuantity) {
-        throw new Error("Hata!");
+        throw new Error("exceededSelectedStock!");
       }
       const data = {
+        production_id,
+        ...params,
         orderproduction_id: production_id,
         orderproduct_id: params.orderproduct_id,
         quantity: params.quantity,
+        price: params.cost,
+        price_primary: params.cost,
+        price_secondary: params.cost * params.secondary_rate,
+        logproduct_id: 0,
       };
 
-      const { rows: orderStock, orderStockCount } = await insertOrderStock(
+      const { rows: orderStock, rowCount: orderStockCount } =
+        await insertOrderStock(data, client);
+
+      if (!orderStockCount) {
+        throw new Error("Hata!");
+      }
+
+      const { rows: stockRows, rowCount: stockCount } = await insertStock(
         data,
         client
       );
-
-      if (!orderStockCount) {
+      console.log("rows of insert stock", stockRows);
+      if (!stockCount) {
         throw new Error("Hata!");
       }
     } else {
@@ -449,10 +469,17 @@ const createManual = async (req, res) => {
 
     await client.query("COMMIT");
 
-    res.status(httpStatus.CREATED).send({ message: "success" });
+    res.status(httpStatus.CREATED).send({ stock: rows[0] });
   } catch (err) {
     console.log("error", err);
     await client.query("ROLLBACK");
+    if (err.constraint === "exceededSelectedStock") {
+      return res
+        .status(httpStatus.BAD_REQUEST)
+        .send("Hata! Fazla Stok Seçildi.");
+    }
+
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).send("An error occurred.");
   } finally {
     client.release();
   }
@@ -471,37 +498,108 @@ const putManual = async (req, res) => {
   }
 };
 const deleteManual = async (req, res) => {
-  const id = req.params.id;
+  const id = parseInt(req.params.id);
   const client = await process.pool.connect();
+  console.log("del manual id", id);
 
   try {
     await client.query("BEGIN");
 
+    const { rows, rowCount } = await _getOneManual(client, id);
 
-  const {rows, rowCount}= await _getOneManual(client, id)
+    if (!rowCount) {
+      throw new Error("Hata");
+    }
 
-  if(!rowCount){
-    throw new Error("Hata");
-  }
+    const production_type = rows[0].production_type;
+    const productionQuantity = rows[0].quantity;
 
-  const production_type= rows[0].production_type;
-  const quantity= rows[0].quantity;
+    if (production_type === "order") {
+      // orderstockta kontrol et approved olmuş muönce
+      // önce orderstocks taki satırı sil
+      const { rows, rowCount } = await getOrderStockByProduction(client, id);
 
-  if(production_type==="order"){
-    // orderstockta kontrol et approved olmuş mu
-    
+      if (!rowCount) {
+        throw new Error("Hata!");
+      }
 
-  }else{
+      const isApproved = rows[0].isapproved;
 
-    // stockta kontrol et quantity kullanılmış mı 
-  }
+      if (isApproved) {
+        throw new Error("usedOrderProductionStock");
+      } else {
+        const { rowCount: orderStockCount } = await delOrderStockByProductionId(
+          client,
+          id
+        );
 
-  res.status(httpStatus.OK).send(rows);
+        if (!orderStockCount) {
+          throw new Error("Hata!");
+        }
+        const { rows: productionStocks, rowCount: productionStocksRowCount } =
+          await getStockByProductionId(client, id);
 
+        if (!productionStocksRowCount) {
+          throw new Error("Hata!");
+        }
+
+        const stockQuantity = productionStocks[0].quantity;
+        const stockId = productionStocks[0].id;
+
+        if (stockQuantity !== productionQuantity) {
+          throw new Error("usedProductionStock");
+        }
+        const { rowCount: delStockRow } = await delStockById(stockId, client);
+
+        if (!delStockRow) {
+          throw new Error("Hata!");
+        }
+        const { rows, rowCount } = await _delManual(client, id);
+
+        if (!rowCount ) {
+          throw new Error("Hata!");
+        }
+      }
+    } else {
+      // stockta kontrol et quantity kullanılmış mı
+      const { rows, rowCount } = await getStockByProductionId(client, id);
+
+      if (!rowCount) {
+        throw new Error("Hata!");
+      }
+
+      const stockQuantity = rows[0].quantity;
+      const stockId = rows[0].id;
+
+      if (stockQuantity !== productionQuantity) {
+        throw new Error("usedProductionStock");
+      }
+      const { rowCount: delStockRow } = await delStockById(stockId, client);
+      const { rowCount: delProductionRow } = await _delManual(client, id);
+
+      if (!delStockRow || !delProductionRow) {
+        throw new Error("Hata!");
+      }
+    }
     await client.query("COMMIT");
-  } catch(err){
-    
+
+    res.status(httpStatus.OK).send({ message: "success" });
+
+  } catch (err) {
+    console.log(err);
     await client.query("ROLLBACK");
+    if (err.constraint === "usedProductionStock") {
+      return res
+        .status(httpStatus.BAD_REQUEST).contentType("text/plain")
+        .send("Hata! Silmek istediğiniz üretim stoğu kullanılmış.");
+    }
+    if (err.constraint === "usedOrderProductionStock") {
+      return res
+        .status(httpStatus.BAD_REQUEST).contentType("text/plain")
+        .send("Hata! Silmek istediğiniz sipariş üretimi onaylanmış.");
+    }
+
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).contentType("text/plain").send("An error occurred.");
   } finally {
     client.release();
   }
@@ -513,8 +611,6 @@ const getManual = async (req, res) => {
     await client.query("BEGIN");
     const { rows } = await _getAllManual(client);
     await client.query("COMMIT");
-
-     console.log("rows prodd", rows)
 
     res.status(httpStatus.OK).send(rows);
   } catch {

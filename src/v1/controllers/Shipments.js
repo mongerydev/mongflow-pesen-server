@@ -16,6 +16,7 @@ const {
   getOne,
   getOrderProduct,
   delProductStatus,
+  shipOrderStock,
 } = require("../services/Orders");
 const { getOne: getCustomer, patchCustomer } = require("../services/Customers");
 const { insert: insertPayment } = require("../services/Payments");

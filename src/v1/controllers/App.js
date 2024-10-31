@@ -6,7 +6,6 @@ const getApp = async (req, res) => {
   try {
     const { rows } = await _getApp(client);
 
-    console.log("rows here app", rows);
     if (!rows[0]) {
       return res
         .status(httpStatus.NOT_FOUND)

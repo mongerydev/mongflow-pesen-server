@@ -273,7 +273,7 @@ const delLog = (id, client) => {
   return process.pool.query(query, values);
 };
 
-const getLogsNonApproved = ( client) => {
+const getLogsNonApproved = (client) => {
   const query = `SELECT 
   s.*, 
   aggregated_products.products,
@@ -334,6 +334,46 @@ ORDER BY
   return process.pool.query(query);
 };
 
+const _getUsageLogs = (product_type, client) => {
+  const query = `SELECT ul.*, p.product_name, lp.price_primary, lp.product_unit, psl.waybill, c.companyname, u.username
+  FROM usagelogs ul
+    LEFT JOIN logproducts lp ON ul.logproduct_id = lp.id
+    LEFT JOIN product p ON lp.product_id = p.product_id
+    LEFT JOIN productstocklogs psl ON lp.log_id = psl.id
+    LEFT JOIN customer c ON psl.customer_id= c.customerid
+    LEFT JOIN "User" u ON ul.user_id= u.userid
+  WHERE ul.product_type=$1`;
+
+  const values=[product_type]
+  if (client) return client.query(query, values);
+  return process.pool.query(query);
+};
+
+const insertUsageLog = (data, client) => {
+  const query = `
+        INSERT INTO usagelogs (
+            date, user_id, logproduct_id, quantity, 
+            details, product_type
+        ) 
+        VALUES (
+            $1, $2, $3, $4, $5, $6
+           
+        ) 
+        RETURNING *`;
+
+  const values = [
+    data.date,
+    data.user_id,
+    data.logproduct_id,
+    data.quantity,
+    data.details,
+    data.product_type,
+  ];
+
+  if (client) return client.query(query, values);
+  return process.pool.query(query, values);
+};
+
 module.exports = {
   insertLog,
   insertLogProduct,
@@ -348,5 +388,7 @@ module.exports = {
   getLog,
   updateLogApproval,
   getLogIdByProduct,
-  getLogsNonApproved
+  getLogsNonApproved,
+  _getUsageLogs,
+  insertUsageLog
 };

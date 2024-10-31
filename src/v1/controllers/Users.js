@@ -22,7 +22,6 @@ const verify = async (req, res) => {
   try {
     const { rows } = await findOne(req.user.userid, client);
 
-    console.log("rows here", rows, req.user.userid);
     if (!rows[0]) {
       return res
         .status(httpStatus.NOT_FOUND)

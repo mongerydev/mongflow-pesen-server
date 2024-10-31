@@ -16,7 +16,7 @@ router.route('/:id').delete(authenticate, paramValidate('id'), remove)
 
 router.route('/manual').post(authenticate, createManual)
 router.route('/manual').put(authenticate, putManual)
-router.route('/manual').delete(authenticate, deleteManual)
+router.route('/manual/:id').delete(authenticate, paramValidate('id'), deleteManual)
 router.route('/manual').get(authenticate, getManual)
 
 module.exports = router

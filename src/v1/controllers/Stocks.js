@@ -114,11 +114,9 @@ const getAllProductStocks = async (req, res) => {
   const client = await process.pool.connect();
   const product_type= req?.params?.product_type;
 
-   console.log("prod type", product_type)
 
   try {
     const { rows } = await getProductStocks(client, product_type);
-     console.log("rowss", rows)
     res.status(httpStatus.OK).send(rows);
   } catch (e) {
     console.error(e);
@@ -144,7 +142,6 @@ const reduceStocks = async (req, res) => {
         id,
         quantity,
       });
-      console.log("reducedwarehouseStocks::", reducedwarehouseStocks);
 
       const log_id = reducedwarehouseStocks[0].log_id;
       const orderproduct_id = parseInt(key);

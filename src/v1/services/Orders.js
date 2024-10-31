@@ -705,8 +705,8 @@ const insertOrderStock = (data, client) => {
     RETURNING *`,
     [
       data.orderproduct_id,
-      data.logproduct_id ?? null,
-      data.orderproduction_id ?? null,
+      data.logproduct_id,
+      data.orderproduction_id ,
       data.quantity,
     ]
   );
@@ -736,6 +736,11 @@ const getOrderStock = (client, orderproduct_id) => {
     orderproduct_id,
   ]);
 };
+const getOrderStockByProduction = (client, orderproduction_id) => {
+  return client.query(`SELECT * FROM orderstocks WHERE orderproduction_id=$1`, [
+    orderproduction_id,
+  ]);
+};
 
 const getOrderStockQuantity = (client, orderproduct_id) => {
   return client.query(
@@ -743,10 +748,20 @@ const getOrderStockQuantity = (client, orderproduct_id) => {
     [orderproduct_id]
   );
 };
-
 const delOrderStocks = (client, orderproduct_id) => {
-  return client.query(`DELETE  FROM orderstocks WHERE orderproduct_id=$1`, [
-    orderproduct_id,
+  return client.query(
+    `DELETE FROM orderstocks 
+     WHERE orderproduct_id = $1 
+       AND (logproduct_id IS NULL OR logproduct_id <> $2)`,
+    [orderproduct_id, 0]
+  );
+};
+
+
+
+const delOrderStockByProductionId = (client, orderproduction_id) => {
+  return client.query(`DELETE FROM orderstocks WHERE orderproduction_id=$1`, [
+    orderproduction_id,
   ]);
 };
 module.exports = {
@@ -785,5 +800,7 @@ module.exports = {
   delOrderStocks,
   getOrderStockQuantity,
   approveOrderStock,
-  shipOrderStock
+  shipOrderStock,
+  getOrderStockByProduction,
+  delOrderStockByProductionId
 };

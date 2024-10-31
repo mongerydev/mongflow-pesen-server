@@ -89,10 +89,17 @@ const _createManual = (client, data) => {
     );
   };
 
+  const _delManual = (client, id) => {
+    return client.query('DELETE FROM manualproductions WHERE id = $1', [id])
+}
+
+
+
 module.exports = {
     getAll,
     del,
     _createManual,
     _getAllManual,
-    _getOneManual
+    _getOneManual,
+    _delManual
 }

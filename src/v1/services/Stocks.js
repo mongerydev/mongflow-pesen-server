@@ -128,6 +128,7 @@ const getProductStocks = (client, product_type) => {
       w.attributes,
       w.log_id,
       w.logproduct_id,
+      w.production_id,
       l.customer_id,
       l.customer_county,
       l.customer_city,
@@ -169,6 +170,7 @@ const getProductStocks = (client, product_type) => {
       w.attributes,
       w.logproduct_id,
       w.log_id,
+      w.production_id,
       l.customer_id,
       l.customer_county,
       l.customer_city,
@@ -198,6 +200,13 @@ const getStockById = (client, id) => {
 const getStockByLogId = (id, client) => {
   const query = `SELECT * FROM productstocks WHERE logproduct_id=$1`;
   const values = [id];
+
+  if (client) return client.query(query, values);
+  return process.pool.query(query, values);
+};
+const getStockByProductionId = (client, production_id) => {
+  const query = `SELECT * FROM productstocks WHERE production_id=$1`;
+  const values = [production_id];
 
   if (client) return client.query(query, values);
   return process.pool.query(query, values);
@@ -368,28 +377,41 @@ const getStockByShiftId = async ({ shift_id, output_product_id }, client) => {
 };
 
 const reduceStockById = async (data, client) => {
-  const query = `
-    UPDATE productstocks
-    SET 
-        quantity = quantity - $2
-    WHERE id=$1
-    RETURNING *`;
+  const query = `UPDATE productstocks
+  SET 
+      quantity = quantity - $2
+  WHERE id = $1 AND quantity - $2 >= 0
+  RETURNING *`;
 
   const values = [data.id, data.quantity];
 
   if (client) return client.query(query, values);
   return process.pool.query(query, values);
 };
+
 const reduceStockByLogId = async (data, client) => {
   const query = `
     UPDATE productstocks
     SET 
         quantity = GREATEST(quantity - $2, 0) -- Prevent quantity from going below zero
     WHERE logproduct_id = $1
-      AND quantity >= $2 -- Only update if there is enough stock
     RETURNING *`;
 
   const values = [data.logproduct_id, data.quantity];
+
+  if (client) return client.query(query, values);
+  return process.pool.query(query, values);
+};
+
+const reduceStockByProductionId = async (data, client) => {
+  const query = `
+    UPDATE productstocks
+    SET 
+        quantity = GREATEST(quantity - $2, 0) -- Prevent quantity from going below zero
+    WHERE production_id = $1
+    RETURNING *`;
+
+  const values = [data.production_id, data.quantity];
 
   if (client) return client.query(query, values);
   return process.pool.query(query, values);
@@ -489,4 +511,6 @@ module.exports = {
   getStockByLogId,
   getAllStockCodes,
   reduceStockByLogId,
+  getStockByProductionId,
+  reduceStockByProductionId
 };

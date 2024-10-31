@@ -12,22 +12,16 @@ require("./loaders")(server);
 const {
   UserRoutes,
   CustomerRoutes,
-  ShiftRoutes,
+  // ShiftRoutes,
   ProductRoutes,
-  LastProductStockRoutes,
-  RecipeMaterialsRoutes,
-  RawMaterialsRoutes,
   RecipeRoutes,
   OrderRoutes,
   StockRoutes,
   StockLogRoutes,
   OtherRoutes,
   ProductionRoutes,
-  SetRoutes,
   ExpensesRoutes,
   ShipmentRoutes,
-  ConsumablesRoutes,
-  SecondQualityProductsRoutes,
   PaymentRoutes,
   AppRoutes
 } = require("./api-routes");
@@ -79,19 +73,13 @@ server.listen(port, () => {
   console.log(`The server is running on port ${port}...`);
   app.use("/user", UserRoutes);
   app.use("/customer", CustomerRoutes);
-  app.use("/shift", ShiftRoutes);
-  app.use("/shift/process", ShiftRoutes);
+  // app.use("/shift", ShiftRoutes);
+  // app.use("/shift/process", ShiftRoutes);
   app.use("/product", ProductRoutes);
   app.use("/recipe", RecipeRoutes);
-  app.use("/stock/rawmaterial", RawMaterialsRoutes);
-  app.use("/stock/recipematerial", RecipeMaterialsRoutes);
-  app.use("/stock/consumable", ConsumablesRoutes);
-  app.use("/stock/secondqualityproduct", SecondQualityProductsRoutes);
-  app.use("/set", SetRoutes);
   app.use("/order", OrderRoutes);
   app.use("/stock", StockRoutes);
   app.use("/stocklog", StockLogRoutes);
-  app.use("/stock/lastproduct", LastProductStockRoutes);
   app.use("/production", ProductionRoutes);
   app.use("/other", OtherRoutes);
   app.use("/expenses", ExpensesRoutes);
